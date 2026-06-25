@@ -1,20 +1,32 @@
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import { NavigationContainer } from '@react-navigation/native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { AppProvider, useApp } from './src/context/AppContext';
+import { LoginScreen } from './src/screens/LoginScreen';
+import { SignupScreen } from './src/screens/SignupScreen';
+import { BabySetupScreen } from './src/screens/BabySetupScreen';
+import { MainTabs } from './src/navigation/MainTabs';
 
-export default function App() {
+function RootNavigator() {
+  const { screen } = useApp();
+
+  if (screen === 'login') return <LoginScreen />;
+  if (screen === 'signup') return <SignupScreen />;
+  if (screen === 'setup') return <BabySetupScreen />;
   return (
-    <View style={styles.container}>
-      <Text>Open up App.tsx to start working on your app!</Text>
-      <StatusBar style="auto" />
-    </View>
+    <NavigationContainer>
+      <MainTabs />
+    </NavigationContainer>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
+export default function App() {
+  return (
+    <SafeAreaProvider>
+      <AppProvider>
+        <StatusBar style="dark" />
+        <RootNavigator />
+      </AppProvider>
+    </SafeAreaProvider>
+  );
+}

@@ -3,20 +3,34 @@
   "version": "1.0.0",
   "main": "index.ts",
   "dependencies": {
+    "@react-native-community/datetimepicker": "9.1.0",
+    "@react-navigation/bottom-tabs": "^7.18.3",
+    "@react-navigation/native": "^7.3.4",
+    "date-fns": "^4.4.0",
     "expo": "~56.0.12",
+    "expo-dev-client": "~56.0.20",
+    "expo-linear-gradient": "~56.0.4",
+    "expo-splash-screen": "~56.0.10",
     "expo-status-bar": "~56.0.4",
+    "lucide-react-native": "^1.21.0",
     "react": "19.2.3",
-    "react-native": "0.85.3"
+    "react-native": "0.85.3",
+    "react-native-gifted-charts": "^1.4.77",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "4.25.2",
+    "react-native-svg": "15.15.4"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
     "typescript": "~6.0.3"
   },
   "scripts": {
-    "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios",
-    "web": "expo start --web"
+    "start": "expo start --dev-client",
+    "start:go": "expo start",
+    "ios": "LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 expo run:ios",
+    "android": "LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 expo run:android",
+    "web": "expo start --web",
+    "pods": "cd ios && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 pod install"
   },
   "private": true
 }
