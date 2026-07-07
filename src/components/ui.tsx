@@ -9,29 +9,37 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
-import { X } from 'lucide-react-native';
+import { X, Trash2 } from 'lucide-react-native';
 import { colors } from '../theme/colors';
+import { keyboardAvoidingBehavior } from '../lib/platform';
 
 interface ModalProps {
   title: string;
   visible: boolean;
   onClose: () => void;
   children: React.ReactNode;
+  disableClose?: boolean;
 }
 
-export function Modal({ title, visible, onClose, children }: ModalProps) {
+export function Modal({ title, visible, onClose, children, disableClose }: ModalProps) {
+  const close = () => {
+    if (disableClose) return;
+    onClose();
+  };
+
   return (
-    <RNModal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <RNModal visible={visible} animationType="slide" transparent onRequestClose={close}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={keyboardAvoidingBehavior}
         style={styles.overlay}
       >
-        <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
+        <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={close} />
         <View style={styles.sheet}>
           <View style={styles.header}>
             <Text style={styles.title}>{title}</Text>
-            <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
+            <TouchableOpacity onPress={close} disabled={disableClose} style={[styles.closeBtn, disableClose && styles.disabled]}>
               <X size={14} color={colors.mutedForeground} />
             </TouchableOpacity>
           </View>
@@ -55,6 +63,7 @@ export function TI({
   keyboardType = 'default',
   secureTextEntry,
   multiline,
+  error,
 }: {
   value: string;
   onChangeText: (t: string) => void;
@@ -62,18 +71,22 @@ export function TI({
   keyboardType?: 'default' | 'email-address' | 'numeric' | 'decimal-pad';
   secureTextEntry?: boolean;
   multiline?: boolean;
+  error?: string;
 }) {
   return (
-    <TextInput
-      value={value}
-      onChangeText={onChangeText}
-      placeholder={placeholder}
-      placeholderTextColor={colors.mutedForeground}
-      keyboardType={keyboardType}
-      secureTextEntry={secureTextEntry}
-      multiline={multiline}
-      style={[styles.input, multiline && styles.textarea]}
-    />
+    <View style={styles.fieldWrap}>
+      <TextInput
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor={colors.mutedForeground}
+        keyboardType={keyboardType}
+        secureTextEntry={secureTextEntry}
+        multiline={multiline}
+        style={[styles.input, multiline && styles.textarea, error && styles.inputError]}
+      />
+      {error ? <Text style={styles.fieldError}>{error}</Text> : null}
+    </View>
   );
 }
 
@@ -81,19 +94,27 @@ export function PBtn({
   children,
   onPress,
   disabled,
+  loading,
 }: {
   children: React.ReactNode;
-  onPress: () => void;
+  onPress: () => void | Promise<void>;
   disabled?: boolean;
+  loading?: boolean;
 }) {
+  const busy = disabled || loading;
+
   return (
     <TouchableOpacity
       onPress={onPress}
-      disabled={disabled}
-      style={[styles.primaryBtn, disabled && styles.disabled]}
+      disabled={busy}
+      style={[styles.primaryBtn, busy && styles.disabled]}
       activeOpacity={0.8}
     >
-      <Text style={styles.primaryBtnText}>{children}</Text>
+      {loading ? (
+        <ActivityIndicator color={colors.primaryForeground} />
+      ) : (
+        <Text style={styles.primaryBtnText}>{children}</Text>
+      )}
     </TouchableOpacity>
   );
 }
@@ -121,33 +142,45 @@ export function ConfirmDeleteModal({
   message,
   onConfirm,
   onClose,
+  loading,
 }: {
   visible: boolean;
   message: string;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
   onClose: () => void;
+  loading?: boolean;
 }) {
+  const busy = !!loading;
+
+  const handleConfirm = async () => {
+    if (busy) return;
+    await onConfirm();
+    onClose();
+  };
+
   return (
-    <RNModal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
+    <RNModal visible={visible} animationType="fade" transparent onRequestClose={busy ? undefined : onClose}>
       <View style={styles.confirmOverlay}>
         <View style={styles.confirmCard}>
           <View style={styles.confirmIcon}>
-            <Text style={{ fontSize: 20 }}>🗑️</Text>
+            <Trash2 size={22} color={colors.red500} />
           </View>
           <Text style={styles.confirmTitle}>Delete this entry?</Text>
           <Text style={styles.confirmMsg}>{message}</Text>
           <View style={styles.confirmActions}>
-            <TouchableOpacity onPress={onClose} style={styles.cancelBtn}>
+            <TouchableOpacity onPress={onClose} disabled={busy} style={[styles.cancelBtn, busy && styles.disabled]}>
               <Text style={styles.cancelText}>Cancel</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              onPress={() => {
-                onConfirm();
-                onClose();
-              }}
-              style={styles.deleteBtn}
+              onPress={handleConfirm}
+              disabled={busy}
+              style={[styles.deleteBtn, busy && styles.disabled]}
             >
-              <Text style={styles.deleteText}>Delete</Text>
+              {busy ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.deleteText}>Delete</Text>
+              )}
             </TouchableOpacity>
           </View>
         </View>
@@ -193,23 +226,29 @@ export function ToggleGroup<T extends string>({
   value,
   onChange,
 }: {
-  options: { value: T; label: string }[];
+  options: { value: T; label: string; icon?: React.ReactNode }[];
   value: T;
   onChange: (v: T) => void;
 }) {
   return (
     <View style={styles.toggleRow}>
-      {options.map((o) => (
-        <TouchableOpacity
-          key={o.value}
-          onPress={() => onChange(o.value)}
-          style={[styles.toggleBtn, value === o.value && styles.toggleActive]}
-        >
-          <Text style={[styles.toggleText, value === o.value && styles.toggleTextActive]}>
-            {o.label}
-          </Text>
-        </TouchableOpacity>
-      ))}
+      {options.map((o) => {
+        const active = value === o.value;
+        return (
+          <TouchableOpacity
+            key={o.value}
+            onPress={() => onChange(o.value)}
+            style={[styles.toggleBtn, active && styles.toggleActive]}
+          >
+            <View style={styles.toggleInner}>
+              {o.icon}
+              <Text style={[styles.toggleText, active && styles.toggleTextActive]}>
+                {o.label}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        );
+      })}
     </View>
   );
 }
@@ -225,24 +264,69 @@ export function TimePickerField({
 }) {
   const DateTimePicker = require('@react-native-community/datetimepicker').default;
   const [show, setShow] = React.useState(false);
+  const [draft, setDraft] = React.useState(value);
+
+  React.useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  const openPicker = () => {
+    setDraft(value);
+    setShow(true);
+  };
+
+  const closePicker = () => setShow(false);
+
+  const confirmPicker = () => {
+    onChange(draft);
+    setShow(false);
+  };
 
   return (
-    <View>
+    <View style={styles.fieldGroup}>
       <FL>{label}</FL>
-      <TouchableOpacity onPress={() => setShow(true)} style={styles.input}>
+      <TouchableOpacity onPress={openPicker} style={styles.input}>
         <Text style={styles.inputText}>
           {value.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </Text>
       </TouchableOpacity>
-      {show && (
-        <DateTimePicker
-          value={value}
-          mode="time"
-          onChange={(_: unknown, d?: Date) => {
-            setShow(Platform.OS === 'ios');
-            if (d) onChange(d);
-          }}
-        />
+
+      {Platform.OS === 'ios' ? (
+        <RNModal visible={show} animationType="slide" transparent onRequestClose={closePicker}>
+          <View style={styles.pickerOverlay}>
+            <TouchableOpacity style={styles.pickerBackdrop} activeOpacity={1} onPress={closePicker} />
+            <View style={styles.pickerSheet}>
+              <View style={styles.pickerToolbar}>
+                <TouchableOpacity onPress={closePicker} hitSlop={8}>
+                  <Text style={styles.pickerCancel}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={confirmPicker} hitSlop={8}>
+                  <Text style={styles.pickerDone}>Done</Text>
+                </TouchableOpacity>
+              </View>
+              <DateTimePicker
+                value={draft}
+                mode="time"
+                display="spinner"
+                onChange={(_: unknown, d?: Date) => {
+                  if (d) setDraft(d);
+                }}
+                style={styles.pickerCalendar}
+              />
+            </View>
+          </View>
+        </RNModal>
+      ) : (
+        show && (
+          <DateTimePicker
+            value={value}
+            mode="time"
+            onChange={(_: unknown, d?: Date) => {
+              setShow(false);
+              if (d) onChange(d);
+            }}
+          />
+        )
       )}
     </View>
   );
@@ -253,31 +337,88 @@ export function DatePickerField({
   value,
   onChange,
   maximumDate,
+  autoOpen,
 }: {
   label: string;
   value: Date;
   onChange: (d: Date) => void;
   maximumDate?: Date;
+  autoOpen?: boolean;
 }) {
   const DateTimePicker = require('@react-native-community/datetimepicker').default;
   const [show, setShow] = React.useState(false);
+  const [draft, setDraft] = React.useState(value);
+
+  React.useEffect(() => {
+    setDraft(value);
+  }, [value]);
+
+  const autoOpened = React.useRef(false);
+
+  React.useEffect(() => {
+    if (!autoOpen || autoOpened.current) return;
+    autoOpened.current = true;
+    setDraft(value);
+    setShow(true);
+  }, [autoOpen, value]);
+
+  const openPicker = () => {
+    setDraft(value);
+    setShow(true);
+  };
+
+  const closePicker = () => setShow(false);
+
+  const confirmPicker = () => {
+    onChange(draft);
+    setShow(false);
+  };
 
   return (
-    <View>
+    <View style={styles.fieldGroup}>
       <FL>{label}</FL>
-      <TouchableOpacity onPress={() => setShow(true)} style={styles.input}>
+      <TouchableOpacity onPress={openPicker} style={styles.input}>
         <Text style={styles.inputText}>{value.toLocaleDateString()}</Text>
       </TouchableOpacity>
-      {show && (
-        <DateTimePicker
-          value={value}
-          mode="date"
-          maximumDate={maximumDate}
-          onChange={(_: unknown, d?: Date) => {
-            setShow(Platform.OS === 'ios');
-            if (d) onChange(d);
-          }}
-        />
+
+      {Platform.OS === 'ios' ? (
+        <RNModal visible={show} animationType="slide" transparent onRequestClose={closePicker}>
+          <View style={styles.pickerOverlay}>
+            <TouchableOpacity style={styles.pickerBackdrop} activeOpacity={1} onPress={closePicker} />
+            <View style={styles.pickerSheet}>
+              <View style={styles.pickerToolbar}>
+                <TouchableOpacity onPress={closePicker} hitSlop={8}>
+                  <Text style={styles.pickerCancel}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={confirmPicker} hitSlop={8}>
+                  <Text style={styles.pickerDone}>Done</Text>
+                </TouchableOpacity>
+              </View>
+              <DateTimePicker
+                value={draft}
+                mode="date"
+                display="inline"
+                maximumDate={maximumDate}
+                onChange={(_: unknown, d?: Date) => {
+                  if (d) setDraft(d);
+                }}
+                style={styles.pickerCalendar}
+              />
+            </View>
+          </View>
+        </RNModal>
+      ) : (
+        show && (
+          <DateTimePicker
+            value={value}
+            mode="date"
+            maximumDate={maximumDate}
+            onChange={(_: unknown, d?: Date) => {
+              setShow(false);
+              if (d) onChange(d);
+            }}
+          />
+        )
       )}
     </View>
   );
@@ -311,7 +452,13 @@ const styles = StyleSheet.create({
     color: colors.mutedForeground,
     textTransform: 'uppercase',
     letterSpacing: 1,
-    marginBottom: 6,
+    marginBottom: 8,
+  },
+  fieldGroup: {
+    marginBottom: 16,
+  },
+  fieldWrap: {
+    marginBottom: 16,
   },
   input: {
     backgroundColor: colors.muted,
@@ -322,7 +469,15 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     fontSize: 14,
     color: colors.foreground,
-    marginBottom: 12,
+  },
+  inputError: {
+    borderColor: colors.red500,
+  },
+  fieldError: {
+    fontSize: 12,
+    color: colors.red500,
+    fontWeight: '500',
+    marginTop: 4,
   },
   inputText: { fontSize: 14, color: colors.foreground },
   textarea: { minHeight: 100, textAlignVertical: 'top' },
@@ -331,7 +486,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingVertical: 12,
     alignItems: 'center',
-    marginTop: 4,
+    marginTop: 8,
   },
   primaryBtnText: { color: colors.primaryForeground, fontSize: 14, fontWeight: '700' },
   disabled: { opacity: 0.5 },
@@ -418,16 +573,41 @@ const styles = StyleSheet.create({
   },
   statValue: { fontSize: 24, fontWeight: '700', color: colors.foreground },
   statSub: { fontSize: 12, color: colors.mutedForeground, marginTop: 2 },
-  toggleRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  toggleRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
   toggleBtn: {
     flex: 1,
     paddingVertical: 10,
+    paddingHorizontal: 8,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: colors.border,
     alignItems: 'center',
+    justifyContent: 'center',
   },
+  toggleInner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   toggleActive: { borderColor: colors.primary, backgroundColor: colors.secondary },
   toggleText: { fontSize: 13, fontWeight: '700', color: colors.mutedForeground },
   toggleTextActive: { color: colors.primary },
+  pickerOverlay: { flex: 1, justifyContent: 'flex-end' },
+  pickerBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.45)' },
+  pickerSheet: {
+    backgroundColor: colors.card,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 24,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  pickerToolbar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  pickerCancel: { fontSize: 16, color: colors.mutedForeground, fontWeight: '600' },
+  pickerDone: { fontSize: 16, color: colors.primary, fontWeight: '700' },
+  pickerCalendar: { alignSelf: 'center' },
 });

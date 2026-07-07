@@ -10,17 +10,25 @@ import {
 import { format, formatDistanceToNow, parseISO } from 'date-fns';
 import {
   Moon,
-  Droplets,
   Baby,
   TrendingUp,
-  Brain,
   Activity,
-  AlertCircle,
+  Syringe,
+  Trash2,
+  FileDown,
+  Plus,
+  Check,
+  Clock,
 } from 'lucide-react-native';
+import { BabyReportExportModal } from '../components/BabyReportExportModal';
+import { DiaperTypeIcon } from '../components/ActivityIcons';
+import { BottleIcon } from '../components/BottleIcon';
 import { useNavigation } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { useApp } from '../context/AppContext';
+import { useFeatureGate } from '../hooks/useFeatureGate';
 import {
+  ConfirmDeleteModal,
   Modal,
   FL,
   PBtn,
@@ -32,24 +40,45 @@ import {
 import { colors } from '../theme/colors';
 import {
   calcDuration,
-  genId,
   getBabyAge,
   minsToHM,
+  safeDate,
   safeFormatTime,
   todayDiapers,
   todayFeedings,
   todaySleepMins,
-  todayStr,
+  isLocalToday,
+  isFutureTimestamp,
 } from '../utils';
-import type { DiaperType } from '../types';
+import type { DiaperType, FeedingEntry, SleepEntry, DiaperEntry } from '../types';
 import type { MainTabParamList } from '../navigation/types';
+
+type TodayActivity =
+  | { kind: 'feeding'; data: FeedingEntry }
+  | { kind: 'sleep'; data: SleepEntry }
+  | { kind: 'diaper'; data: DiaperEntry };
 
 export function HomeScreen() {
   const navigation = useNavigation<BottomTabNavigationProp<MainTabParamList>>();
-  const { baby, feedings, sleepEntries, diapers, setDiapers, growth, vaccinations } = useApp();
+  const {
+    baby,
+    feedings,
+    sleepEntries,
+    diapers,
+    addDiaper,
+    deleteFeeding,
+    deleteSleep,
+    deleteDiaper,
+    growth,
+    vaccinations,
+    mutating,
+  } = useApp();
+  const { gateAdd, handleAddSaveResult } = useFeatureGate();
   const [showDiaper, setShowDiaper] = useState(false);
   const [diaperType, setDiaperType] = useState<DiaperType>('wet');
   const [diaperTime, setDiaperTime] = useState(new Date());
+  const [confirmDelete, setConfirmDelete] = useState<TodayActivity | null>(null);
+  const [showReport, setShowReport] = useState(false);
 
   if (!baby) return null;
 
@@ -63,54 +92,72 @@ export function HomeScreen() {
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
 
-  const allToday = ([
-    ...todayFeed,
-    ...sleepEntries.filter((s) => s.start.startsWith(todayStr())),
-    ...todayDiap,
-  ] as Array<{ timestamp?: string; start?: string; type?: string; side?: string; duration?: number; amount?: number; end?: string }>)
+  const allToday: TodayActivity[] = [
+    ...todayFeed.map((data) => ({ kind: 'feeding' as const, data })),
+    ...sleepEntries
+      .filter((s) => isLocalToday(s.start))
+      .map((data) => ({ kind: 'sleep' as const, data })),
+    ...todayDiap.map((data) => ({ kind: 'diaper' as const, data })),
+  ]
     .sort((a, b) => {
-      const ts = (x: typeof a) => x.timestamp || x.start || '';
+      const ts = (x: TodayActivity) => x.data.timestamp || ('start' in x.data ? x.data.start : '') || '';
       return ts(b).localeCompare(ts(a));
     })
     .slice(0, 6);
 
-  const logDiaper = () => {
-    setDiapers((p) => [
-      { id: genId(), timestamp: diaperTime.toISOString(), type: diaperType },
-      ...p,
-    ]);
-    setShowDiaper(false);
+  const logDiaper = async () => {
+    if (mutating) return;
+    const ok = await addDiaper({ timestamp: diaperTime.toISOString(), type: diaperType });
+    handleAddSaveResult(ok, 'diaper', () => setShowDiaper(false), () => setShowDiaper(false));
   };
 
-  const activityIcon = (item: (typeof allToday)[0]) => {
-    if (item.start) return '😴';
-    if (item.type === 'wet') return '💧';
-    if (item.type === 'dirty') return '💩';
-    if (item.type === 'both') return '🔄';
-    if (item.type === 'breast') return '🤱';
-    if (item.type === 'bottle') return '🍼';
-    if (item.type === 'solid') return '🥣';
-    return '📋';
+  const deleteActivity = async () => {
+    if (!confirmDelete) return;
+    if (confirmDelete.kind === 'feeding') await deleteFeeding(confirmDelete.data.id);
+    else if (confirmDelete.kind === 'sleep') await deleteSleep(confirmDelete.data.id);
+    else await deleteDiaper(confirmDelete.data.id);
   };
 
-  const activityLabel = (item: (typeof allToday)[0]) => {
-    if (item.start) return item.type === 'night' ? 'Night sleep' : 'Nap';
-    if (item.type === 'wet' || item.type === 'dirty' || item.type === 'both') return 'Diaper change';
-    if (item.type === 'breast') return 'Breastfeed';
-    if (item.type === 'bottle') return 'Bottle';
-    if (item.type === 'solid') return 'Solid food';
+  const deleteMessage = (item: TodayActivity) => {
+    if (item.kind === 'feeding') return "This feeding entry will be permanently removed from today's activity.";
+    if (item.kind === 'sleep') return 'This sleep session will be permanently removed from today\'s activity.';
+    return 'This diaper change will be permanently removed from today\'s activity.';
+  };
+
+  const activityLabel = (item: TodayActivity) => {
+    const { data } = item;
+    if (item.kind === 'sleep') return data.type === 'night' ? 'Night sleep' : 'Nap';
+    if (item.kind === 'diaper') return 'Diaper change';
+    if (data.type === 'breast') return 'Breastfeed';
+    if (data.type === 'bottle') return 'Bottle';
+    if (data.type === 'solid') return 'Solid food';
     return 'Entry';
   };
 
-  const activityDetail = (item: (typeof allToday)[0]) => {
-    if (item.start && item.end) return calcDuration(item.start, item.end);
-    if (item.type === 'wet') return 'Wet';
-    if (item.type === 'dirty') return 'Dirty';
-    if (item.type === 'both') return 'Wet & dirty';
-    if (item.type === 'breast') return `${item.side || ''} · ${item.duration ?? '?'}m`.trim();
-    if (item.type === 'bottle') return `${item.amount ?? '?'}ml`;
+  const activityDetail = (item: TodayActivity) => {
+    const { data } = item;
+    if (item.kind === 'sleep') return calcDuration(data.start, data.end);
+    if (item.kind === 'diaper') {
+      if (data.type === 'wet') return 'Wet';
+      if (data.type === 'dirty') return 'Dirty';
+      return 'Wet & dirty';
+    }
+    if (data.type === 'breast') return `${data.side || ''} · ${data.duration ?? '?'}m`.trim();
+    if (data.type === 'bottle') return `${data.amount ?? '?'}ml`;
     return '';
   };
+
+  const activityTime = (item: TodayActivity) => {
+    const ts = item.kind === 'sleep' ? item.data.start : item.data.timestamp;
+    return safeFormatTime(ts);
+  };
+
+  const activityTimestamp = (item: TodayActivity) =>
+    item.kind === 'sleep' ? item.data.start : item.data.timestamp;
+
+  const isActivityPending = (item: TodayActivity) => isFutureTimestamp(activityTimestamp(item));
+
+  const activityKey = (item: TodayActivity) => `${item.kind}-${item.data.id}`;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -121,7 +168,7 @@ export function HomeScreen() {
       >
         <View style={styles.heroOverlay}>
           <Text style={styles.heroDate}>{format(new Date(), 'EEEE, MMMM d')}</Text>
-          <Text style={styles.heroTitle}>{greeting} 👋</Text>
+          <Text style={styles.heroTitle}>{greeting}</Text>
           <Text style={styles.heroSub}>
             {baby.name} is {getBabyAge(baby.birthDate)} — you're doing great!
           </Text>
@@ -130,7 +177,7 @@ export function HomeScreen() {
               <Text style={styles.chipText}>
                 {lastFeed
                   ? `Fed ${formatDistanceToNow(parseISO(lastFeed.timestamp), { addSuffix: true })}`
-                  : 'No feedings logged'}
+                  : 'No feedings yet'}
               </Text>
             </View>
             <View style={styles.chip}>
@@ -143,7 +190,7 @@ export function HomeScreen() {
       <View style={styles.statsRow}>
         <StatCard icon={<Moon />} label="Sleep" value={minsToHM(sleepMins)} sub="Today's total" iconBg={colors.violet100} iconColor={colors.violet500} />
         <StatCard
-          icon={<Droplets />}
+          icon={<BottleIcon />}
           label="Feedings"
           value={`${todayFeed.length}×`}
           sub={lastFeed ? `Last ${formatDistanceToNow(parseISO(lastFeed.timestamp), { addSuffix: true })}` : 'None today'}
@@ -156,93 +203,136 @@ export function HomeScreen() {
         <StatCard icon={<TrendingUp />} label="Weight" value={latestGrowth?.weight ? `${latestGrowth.weight} kg` : '—'} sub="Latest measurement" iconBg={colors.teal100} iconColor={colors.teal500} />
       </View>
 
-      <Text style={styles.sectionLabel}>Quick Log</Text>
-      <View style={styles.quickRow}>
-        <TouchableOpacity
-          style={styles.quickBtn}
-          onPress={() => navigation.navigate('Feeding')}
-        >
-          <View style={[styles.quickIcon, { backgroundColor: colors.rose100 }]}>
-            <Droplets size={18} color={colors.rose600} />
-          </View>
-          <Text style={styles.quickLabel}>Feed</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.quickBtn}
-          onPress={() => navigation.navigate('Sleep')}
-        >
-          <View style={[styles.quickIcon, { backgroundColor: colors.violet100 }]}>
-            <Moon size={18} color={colors.violet600} />
-          </View>
-          <Text style={styles.quickLabel}>Sleep</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.quickBtn}
-          onPress={() => { setDiaperTime(new Date()); setShowDiaper(true); }}
-        >
-          <View style={[styles.quickIcon, { backgroundColor: colors.amber100 }]}>
-            <Baby size={18} color={colors.amber600} />
-          </View>
-          <Text style={styles.quickLabel}>Diaper</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.quickBtn}
-          onPress={() => navigation.navigate('AI')}
-        >
-          <View style={[styles.quickIcon, { backgroundColor: colors.blue100 }]}>
-            <Brain size={18} color={colors.blue600} />
-          </View>
-          <Text style={styles.quickLabel}>Ask AI</Text>
-        </TouchableOpacity>
-      </View>
+      <Text style={styles.sectionLabel}>Export</Text>
+      <TouchableOpacity style={styles.exportCard} onPress={() => setShowReport(true)} activeOpacity={0.9}>
+        <View style={styles.exportIcon}>
+          <FileDown size={20} color={colors.primary} />
+        </View>
+        <View style={styles.exportBody}>
+          <Text style={styles.exportTitle}>Export Health Report</Text>
+          <Text style={styles.exportSub}>Preview & download a PDF with all of {baby.name}&apos;s data</Text>
+        </View>
+        <Text style={styles.exportCta}>Open →</Text>
+      </TouchableOpacity>
+
+      <Text style={styles.sectionLabel}>Quick Add</Text>
+      <TouchableOpacity
+        style={styles.diaperQuickCard}
+        onPress={() => gateAdd(diapers.length, 'diaper', () => { if (!mutating) { setDiaperTime(new Date()); setShowDiaper(true); } })}
+        disabled={mutating}
+        activeOpacity={0.9}
+      >
+        <View style={styles.diaperQuickIcon}>
+          <Baby size={22} color={colors.amber600} />
+        </View>
+        <View style={styles.diaperQuickBody}>
+          <Text style={styles.diaperQuickTitle}>Log Diaper Change</Text>
+          <Text style={styles.diaperQuickSub}>
+            {todayDiap.length > 0
+              ? `${todayDiap.length} logged today · wet, dirty, or both`
+              : 'Track wet, dirty, or both'}
+          </Text>
+        </View>
+        <View style={styles.diaperQuickAction}>
+          <Plus size={18} color={colors.primaryForeground} />
+        </View>
+      </TouchableOpacity>
 
       {nextVax && (
-        <View style={styles.alert}>
-          <AlertCircle size={16} color={colors.rose500} />
-          <View style={styles.alertBody}>
-            <Text style={styles.alertTitle} numberOfLines={1}>{nextVax.name}</Text>
-            <Text style={styles.alertSub}>{format(parseISO(nextVax.scheduledDate), 'MMM d, yyyy')}</Text>
+        <>
+          <Text style={styles.sectionLabel}>Upcoming Vaccines</Text>
+          <View style={styles.alert}>
+            <View style={styles.vaxIcon}>
+              <Syringe size={18} color={colors.rose600} />
+            </View>
+            <View style={styles.alertBody}>
+              <Text style={styles.alertTitle} numberOfLines={1}>{nextVax.name}</Text>
+              <Text style={styles.alertSub}>{safeDate(nextVax.scheduledDate)}</Text>
+            </View>
+            <TouchableOpacity onPress={() => navigation.navigate('Health')}>
+              <Text style={styles.alertLink}>View →</Text>
+            </TouchableOpacity>
           </View>
-          <TouchableOpacity onPress={() => navigation.navigate('Health')}>
-            <Text style={styles.alertLink}>View →</Text>
-          </TouchableOpacity>
-        </View>
+        </>
       )}
 
       <Text style={styles.sectionLabel}>Today's Activity</Text>
       {allToday.length === 0 ? (
-        <EmptyState icon={<Activity size={22} color={colors.mutedForeground} />} title="No activity yet" desc="Tap Quick Log above to start tracking today." />
+        <EmptyState icon={<Activity size={22} color={colors.mutedForeground} />} title="No activity yet" desc="Log a diaper change above or use the tabs to track feedings and sleep." />
       ) : (
         <View style={styles.list}>
-          {allToday.map((item, i) => (
-            <View key={i} style={[styles.listItem, i > 0 && styles.listBorder]}>
-              <Text style={styles.listEmoji}>{activityIcon(item)}</Text>
-              <View style={styles.listBody}>
-                <Text style={styles.listTitle}>{activityLabel(item)}</Text>
-                <Text style={styles.listSub}>{activityDetail(item)}</Text>
+          {allToday.map((item, i) => {
+            const pending = isActivityPending(item);
+            return (
+              <View key={activityKey(item)} style={[styles.listItem, i > 0 && styles.listBorder]}>
+                <View style={[styles.listIcon, pending ? styles.listIconPending : styles.listIconCompleted]}>
+                  {pending ? (
+                    <Clock size={15} color={colors.amber600} />
+                  ) : (
+                    <Check size={15} color={colors.green600} />
+                  )}
+                </View>
+                <View style={styles.listBody}>
+                  <Text style={[styles.listTitle, !pending && styles.listTitleCompleted]}>{activityLabel(item)}</Text>
+                  <Text style={styles.listSub}>{activityDetail(item)}</Text>
+                </View>
+                <View style={styles.listMeta}>
+                  <Text style={styles.listTime}>{activityTime(item)}</Text>
+                  <View style={[styles.statusBadge, pending ? styles.statusPending : styles.statusCompleted]}>
+                    <Text style={[styles.statusText, pending ? styles.statusTextPending : styles.statusTextCompleted]}>
+                      {pending ? 'Pending' : 'Completed'}
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity onPress={() => setConfirmDelete(item)} disabled={mutating}>
+                  <Trash2 size={14} color={colors.mutedForeground} />
+                </TouchableOpacity>
               </View>
-              <Text style={styles.listTime}>{safeFormatTime(item.timestamp || item.start || '')}</Text>
-            </View>
-          ))}
+            );
+          })}
         </View>
       )}
 
-      <Modal title="Log Diaper Change" visible={showDiaper} onClose={() => setShowDiaper(false)}>
+      <ConfirmDeleteModal
+        visible={!!confirmDelete}
+        message={confirmDelete ? deleteMessage(confirmDelete) : ''}
+        onConfirm={deleteActivity}
+        onClose={() => setConfirmDelete(null)}
+        loading={mutating}
+      />
+
+      <Modal title="Add Diaper Change" visible={showDiaper} onClose={() => setShowDiaper(false)} disableClose={mutating}>
         <FL>Type</FL>
         <View style={styles.diaperRow}>
-          {([['wet', '💧 Wet'], ['dirty', '💩 Dirty'], ['both', '🔄 Both']] as const).map(([t, label]) => (
-            <TouchableOpacity
-              key={t}
-              onPress={() => setDiaperType(t)}
-              style={[styles.diaperBtn, diaperType === t && styles.diaperActive]}
-            >
-              <Text style={[styles.diaperText, diaperType === t && styles.diaperTextActive]}>{label}</Text>
-            </TouchableOpacity>
-          ))}
+          {(
+            [
+              { type: 'wet' as const, label: 'Wet' },
+              { type: 'dirty' as const, label: 'Dirty' },
+              { type: 'both' as const, label: 'Both' },
+            ] as const
+          ).map(({ type, label }) => {
+            const active = diaperType === type;
+            return (
+              <TouchableOpacity
+                key={type}
+                onPress={() => setDiaperType(type)}
+                style={[styles.diaperBtn, active && styles.diaperActive]}
+              >
+                <DiaperTypeIcon
+                  type={type}
+                  size={16}
+                  color={active ? colors.primary : colors.mutedForeground}
+                />
+                <Text style={[styles.diaperText, active && styles.diaperTextActive]}>{label}</Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
         <TimePickerField label="Time" value={diaperTime} onChange={setDiaperTime} />
-        <PBtn onPress={logDiaper}>Log Diaper Change</PBtn>
+        <PBtn onPress={logDiaper} loading={mutating} disabled={mutating}>Add Diaper Change</PBtn>
       </Modal>
+
+      <BabyReportExportModal visible={showReport} onClose={() => setShowReport(false)} />
     </ScrollView>
   );
 }
@@ -260,20 +350,58 @@ const styles = StyleSheet.create({
   chip: { backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
   chipText: { color: '#fff', fontSize: 12, fontWeight: '500' },
   statsRow: { flexDirection: 'row', gap: 12 },
-  sectionLabel: { fontSize: 10, fontWeight: '700', color: colors.mutedForeground, textTransform: 'uppercase', letterSpacing: 1 },
-  quickRow: { flexDirection: 'row', gap: 8 },
-  quickBtn: {
-    flex: 1,
+  exportCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 16,
-    paddingVertical: 16,
-    alignItems: 'center',
-    gap: 8,
+    borderRadius: 18,
+    padding: 16,
   },
-  quickIcon: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  quickLabel: { fontSize: 11, fontWeight: '700', color: colors.foreground },
+  exportIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: colors.secondary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  exportBody: { flex: 1 },
+  exportTitle: { fontSize: 15, fontWeight: '700', color: colors.foreground },
+  exportSub: { fontSize: 12, color: colors.mutedForeground, marginTop: 3, lineHeight: 17 },
+  exportCta: { fontSize: 13, fontWeight: '700', color: colors.primary },
+  sectionLabel: { fontSize: 10, fontWeight: '700', color: colors.mutedForeground, textTransform: 'uppercase', letterSpacing: 1 },
+  diaperQuickCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.amber200,
+    borderRadius: 18,
+    padding: 16,
+  },
+  diaperQuickIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: colors.amber100,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  diaperQuickBody: { flex: 1 },
+  diaperQuickTitle: { fontSize: 15, fontWeight: '700', color: colors.foreground },
+  diaperQuickSub: { fontSize: 12, color: colors.mutedForeground, marginTop: 3, lineHeight: 17 },
+  diaperQuickAction: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   alert: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -284,6 +412,14 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
   },
+  vaxIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: colors.rose100,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   alertBody: { flex: 1 },
   alertTitle: { fontSize: 14, fontWeight: '700', color: colors.rose900 },
   alertSub: { fontSize: 12, color: colors.rose700 },
@@ -291,13 +427,39 @@ const styles = StyleSheet.create({
   list: { backgroundColor: colors.card, borderRadius: 16, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
   listItem: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
   listBorder: { borderTopWidth: 1, borderTopColor: colors.border },
-  listEmoji: { fontSize: 18 },
+  listIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  listIconCompleted: { backgroundColor: colors.green100 },
+  listIconPending: { backgroundColor: colors.amber100 },
   listBody: { flex: 1 },
   listTitle: { fontSize: 14, fontWeight: '700', color: colors.foreground },
+  listTitleCompleted: { color: colors.mutedForeground },
   listSub: { fontSize: 12, color: colors.mutedForeground },
-  listTime: { fontSize: 12, color: colors.mutedForeground },
+  listMeta: { alignItems: 'flex-end', gap: 4 },
+  listTime: { fontSize: 12, color: colors.mutedForeground, fontVariant: ['tabular-nums'] },
+  statusBadge: { borderRadius: 8, paddingHorizontal: 7, paddingVertical: 2 },
+  statusCompleted: { backgroundColor: colors.green100 },
+  statusPending: { backgroundColor: colors.amber100 },
+  statusText: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.3 },
+  statusTextCompleted: { color: colors.green700 },
+  statusTextPending: { color: colors.amber800 },
   diaperRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
-  diaperBtn: { flex: 1, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: colors.border, alignItems: 'center' },
+  diaperBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
   diaperActive: { borderColor: colors.primary, backgroundColor: colors.secondary },
   diaperText: { fontSize: 13, fontWeight: '700', color: colors.mutedForeground },
   diaperTextActive: { color: colors.primary },

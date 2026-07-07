@@ -5,13 +5,13 @@ import {
   AlertCircle,
   Shield,
   Calendar,
-  User,
   MessageCircle,
   Plus,
   Check,
   Trash2,
 } from 'lucide-react-native';
 import { useApp } from '../context/AppContext';
+import { useFeatureGate } from '../hooks/useFeatureGate';
 import {
   Modal,
   FL,
@@ -23,10 +23,26 @@ import {
   TimePickerField,
 } from '../components/ui';
 import { colors } from '../theme/colors';
-import { genId, safeDate } from '../utils';
+import { safeDate } from '../utils';
 
 export function HealthScreen() {
-  const { vaccinations, setVaccinations, appointments, setAppointments, medNotes, setMedNotes } = useApp();
+  const {
+    vaccinations,
+    appointments,
+    medNotes,
+    updateVaccination,
+    addVaccination,
+    deleteVaccination,
+    addAppointment,
+    updateAppointment,
+    deleteAppointment,
+    addMedNote,
+    updateMedNote,
+    deleteMedNote,
+    mutating,
+    userVaccinationCount,
+  } = useApp();
+  const { gateAdd, handleAddSaveResult } = useFeatureGate();
   const [showVax, setShowVax] = useState(false);
   const [showApt, setShowApt] = useState(false);
   const [showNote, setShowNote] = useState(false);
@@ -51,54 +67,78 @@ export function HealthScreen() {
 
   const nextVax = vaccinations.find((v) => !v.done);
 
-  const markDone = (id: string) =>
-    setVaccinations((p) =>
-      p.map((v) => (v.id === id ? { ...v, done: true, completedDate: format(new Date(), 'yyyy-MM-dd') } : v)),
-    );
-  const unmarkDone = (id: string) =>
-    setVaccinations((p) =>
-      p.map((v) => (v.id === id ? { ...v, done: false, completedDate: undefined } : v)),
-    );
-
-  const saveVax = () => {
-    if (!vaxName.trim()) return;
-    setVaccinations((p) => [
-      ...p,
-      { id: genId(), name: vaxName.trim(), scheduledDate: format(vaxDate, 'yyyy-MM-dd'), done: false },
-    ]);
-    setVaxName('');
-    setVaxDate(new Date());
-    setShowVax(false);
+  const toggleVax = (id: string, done: boolean) => {
+    if (mutating) return;
+    if (done) {
+      updateVaccination(id, { done: false, completedDate: undefined });
+    } else {
+      updateVaccination(id, { done: true, completedDate: format(new Date(), 'yyyy-MM-dd') });
+    }
   };
 
-  const saveApt = () => {
-    if (!aptDoctor.trim() || !aptType.trim()) return;
-    setAppointments((p) => [
-      ...p,
-      {
-        id: genId(),
-        doctor: aptDoctor.trim(),
-        specialty: aptSpec,
-        date: format(aptDate, 'yyyy-MM-dd'),
-        time: format(aptTime, 'HH:mm'),
-        type: aptType.trim(),
-      },
-    ]);
-    setAptDoctor('');
-    setAptType('');
-    setShowApt(false);
+  const toggleApt = (id: string, done: boolean) => {
+    if (mutating) return;
+    if (done) {
+      updateAppointment(id, { done: false, completedDate: undefined });
+    } else {
+      updateAppointment(id, { done: true, completedDate: format(new Date(), 'yyyy-MM-dd') });
+    }
   };
 
-  const saveNote = () => {
-    if (!noteTitle.trim() || !noteContent.trim()) return;
-    setMedNotes((p) => [
-      { id: genId(), date: format(noteDate, 'yyyy-MM-dd'), title: noteTitle.trim(), content: noteContent.trim() },
-      ...p,
-    ]);
-    setNoteTitle('');
-    setNoteContent('');
-    setNoteDate(new Date());
-    setShowNote(false);
+  const toggleNote = (id: string, done: boolean) => {
+    if (mutating) return;
+    if (done) {
+      updateMedNote(id, { done: false, completedDate: undefined });
+    } else {
+      updateMedNote(id, { done: true, completedDate: format(new Date(), 'yyyy-MM-dd') });
+    }
+  };
+
+  const saveVax = async () => {
+    if (mutating || !vaxName.trim()) return;
+    const ok = await addVaccination({
+      name: vaxName.trim(),
+      scheduledDate: format(vaxDate, 'yyyy-MM-dd'),
+      done: false,
+    });
+    handleAddSaveResult(ok, 'vaccination', () => setShowVax(false), () => {
+      setVaxName('');
+      setVaxDate(new Date());
+      setShowVax(false);
+    });
+  };
+
+  const saveApt = async () => {
+    if (mutating || !aptDoctor.trim() || !aptType.trim()) return;
+    const ok = await addAppointment({
+      doctor: aptDoctor.trim(),
+      specialty: aptSpec,
+      date: format(aptDate, 'yyyy-MM-dd'),
+      time: format(aptTime, 'HH:mm'),
+      type: aptType.trim(),
+      done: false,
+    });
+    handleAddSaveResult(ok, 'appointment', () => setShowApt(false), () => {
+      setAptDoctor('');
+      setAptType('');
+      setShowApt(false);
+    });
+  };
+
+  const saveNote = async () => {
+    if (mutating || !noteTitle.trim() || !noteContent.trim()) return;
+    const ok = await addMedNote({
+      date: format(noteDate, 'yyyy-MM-dd'),
+      title: noteTitle.trim(),
+      content: noteContent.trim(),
+      done: false,
+    });
+    handleAddSaveResult(ok, 'med_note', () => setShowNote(false), () => {
+      setNoteTitle('');
+      setNoteContent('');
+      setNoteDate(new Date());
+      setShowNote(false);
+    });
   };
 
   return (
@@ -116,101 +156,140 @@ export function HealthScreen() {
             <Text style={styles.alertName}>{nextVax.name}</Text>
             <Text style={styles.alertSub}>Scheduled: {safeDate(nextVax.scheduledDate)}</Text>
           </View>
-          <TouchableOpacity style={styles.markDone} onPress={() => markDone(nextVax.id)}>
+          <TouchableOpacity style={styles.markDone} disabled={mutating} onPress={() => toggleVax(nextVax.id, false)}>
             <Text style={styles.markDoneText}>Mark Done</Text>
           </TouchableOpacity>
         </View>
       )}
 
-      <SectionHeader title="Vaccinations" onAdd={() => { setVaxName(''); setVaxDate(new Date()); setShowVax(true); }} />
+      <SectionHeader title="Vaccinations" disabled={mutating} onAdd={() => gateAdd(userVaccinationCount, 'vaccination', () => { setVaxName(''); setVaxDate(new Date()); setShowVax(true); })} />
+      <Text style={styles.scheduleHint}>
+        Essential vaccines based on your baby&apos;s birth date. Mark each when given, or tap Add for boosters and others.
+      </Text>
       {vaccinations.length === 0 ? (
         <EmptyState icon={<Shield size={22} color={colors.mutedForeground} />} title="No vaccinations" desc="Add your baby's vaccination schedule." />
       ) : (
         <View style={styles.list}>
-          {vaccinations.map((v, i) => (
-            <View key={v.id} style={[styles.vaxItem, i > 0 && styles.listBorder]}>
-              <TouchableOpacity
-                onPress={() => (v.done ? unmarkDone(v.id) : markDone(v.id))}
-                style={[styles.vaxCheck, v.done ? styles.vaxDone : styles.vaxPending]}
-              >
+          {[...vaccinations]
+            .sort((a, b) => a.scheduledDate.localeCompare(b.scheduledDate))
+            .map((v, i) => (
+            <TouchableOpacity
+              key={v.id}
+              style={[styles.vaxItem, i > 0 && styles.listBorder]}
+              onPress={() => toggleVax(v.id, v.done)}
+              disabled={mutating}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.vaxCheck, v.done ? styles.vaxDone : styles.vaxPending]}>
                 {v.done ? <Check size={14} color={colors.green600} /> : <Shield size={13} color={colors.rose500} />}
-              </TouchableOpacity>
+              </View>
               <View style={styles.vaxBody}>
                 <Text style={styles.vaxName}>{v.name}</Text>
                 <Text style={styles.vaxSub}>
                   {v.done ? `Done ${v.completedDate ? safeDate(v.completedDate) : ''}` : `Scheduled ${safeDate(v.scheduledDate)}`}
                 </Text>
               </View>
-              <View style={[styles.badge, v.done ? styles.badgeDone : styles.badgePending]}>
-                <Text style={[styles.badgeText, v.done ? styles.badgeTextDone : styles.badgeTextPending]}>
-                  {v.done ? 'Done' : 'Pending'}
+              <View style={[styles.badge, v.done ? styles.badgeUndo : styles.badgePending]}>
+                <Text style={[styles.badgeText, v.done ? styles.badgeTextUndo : styles.badgeTextPending]}>
+                  {v.done ? 'Undo' : 'Pending'}
                 </Text>
               </View>
-              <TouchableOpacity onPress={() => setConfirmVax(v.id)}>
+              <TouchableOpacity onPress={() => setConfirmVax(v.id)} disabled={mutating} hitSlop={8}>
                 <Trash2 size={13} color={colors.mutedForeground} />
               </TouchableOpacity>
-            </View>
+            </TouchableOpacity>
           ))}
         </View>
       )}
 
-      <SectionHeader title="Appointments" onAdd={() => { setAptDoctor(''); setAptType(''); setShowApt(true); }} />
+      <SectionHeader title="Appointments" disabled={mutating} onAdd={() => gateAdd(appointments.length, 'appointment', () => { setAptDoctor(''); setAptType(''); setShowApt(true); })} />
       {appointments.length === 0 ? (
         <EmptyState icon={<Calendar size={22} color={colors.mutedForeground} />} title="No appointments" desc="Schedule doctor visits and checkups." />
       ) : (
         <View style={styles.aptList}>
           {[...appointments].sort((a, b) => a.date.localeCompare(b.date)).map((apt) => (
-            <View key={apt.id} style={styles.aptItem}>
-              <View style={styles.aptIcon}>
-                <User size={15} color={colors.blue600} />
+            <TouchableOpacity
+              key={apt.id}
+              style={styles.aptItem}
+              onPress={() => toggleApt(apt.id, apt.done)}
+              disabled={mutating}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.aptCheck, apt.done ? styles.aptCheckDone : styles.aptCheckPending]}>
+                {apt.done ? <Check size={14} color={colors.green600} /> : <Calendar size={13} color={colors.blue600} />}
               </View>
               <View style={styles.aptBody}>
-                <Text style={styles.aptType}>{apt.type}</Text>
+                <Text style={[styles.aptType, apt.done && styles.aptTypeDone]}>{apt.type}</Text>
                 <Text style={styles.aptSub}>{apt.doctor} · {apt.specialty}</Text>
-                <Text style={styles.aptDate}>{safeDate(apt.date)} · {apt.time}</Text>
+                <Text style={styles.aptDate}>
+                  {apt.done
+                    ? `Done ${apt.completedDate ? safeDate(apt.completedDate) : ''}`
+                    : `${safeDate(apt.date)} · ${apt.time}`}
+                </Text>
               </View>
-              <TouchableOpacity onPress={() => setConfirmApt(apt.id)}>
+              <View style={[styles.badge, apt.done ? styles.badgeUndo : styles.badgePending]}>
+                <Text style={[styles.badgeText, apt.done ? styles.badgeTextUndo : styles.badgeTextPending]}>
+                  {apt.done ? 'Undo' : 'Mark done'}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setConfirmApt(apt.id)} disabled={mutating} hitSlop={8}>
                 <Trash2 size={14} color={colors.mutedForeground} />
               </TouchableOpacity>
-            </View>
+            </TouchableOpacity>
           ))}
         </View>
       )}
 
-      <SectionHeader title="Medical Notes" onAdd={() => { setNoteTitle(''); setNoteContent(''); setNoteDate(new Date()); setShowNote(true); }} />
+      <SectionHeader title="Medical Notes" disabled={mutating} onAdd={() => gateAdd(medNotes.length, 'med_note', () => { setNoteTitle(''); setNoteContent(''); setNoteDate(new Date()); setShowNote(true); })} />
       {medNotes.length === 0 ? (
         <EmptyState icon={<MessageCircle size={22} color={colors.mutedForeground} />} title="No notes" desc="Record medical observations and doctor feedback." />
       ) : (
         <View style={styles.noteList}>
           {medNotes.map((n) => (
-            <View key={n.id} style={styles.noteItem}>
+            <TouchableOpacity
+              key={n.id}
+              style={styles.noteItem}
+              onPress={() => toggleNote(n.id, n.done)}
+              disabled={mutating}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.noteCheck, n.done ? styles.noteCheckDone : styles.noteCheckPending]}>
+                {n.done ? <Check size={14} color={colors.green600} /> : <MessageCircle size={13} color={colors.mutedForeground} />}
+              </View>
               <View style={styles.noteBody}>
                 <View style={styles.noteHeader}>
-                  <Text style={styles.noteTitle}>{n.title}</Text>
-                  <Text style={styles.noteDate}>{safeDate(n.date)}</Text>
+                  <Text style={[styles.noteTitle, n.done && styles.noteTitleDone]}>{n.title}</Text>
+                  <Text style={styles.noteDate}>
+                    {n.done ? `Done ${n.completedDate ? safeDate(n.completedDate) : ''}` : safeDate(n.date)}
+                  </Text>
                 </View>
                 <Text style={styles.noteContent}>{n.content}</Text>
               </View>
-              <TouchableOpacity onPress={() => setConfirmNote(n.id)}>
+              <View style={[styles.badge, n.done ? styles.badgeUndo : styles.badgePending]}>
+                <Text style={[styles.badgeText, n.done ? styles.badgeTextUndo : styles.badgeTextPending]}>
+                  {n.done ? 'Undo' : 'Mark done'}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setConfirmNote(n.id)} disabled={mutating} hitSlop={8}>
                 <Trash2 size={13} color={colors.mutedForeground} />
               </TouchableOpacity>
-            </View>
+            </TouchableOpacity>
           ))}
         </View>
       )}
 
-      <ConfirmDeleteModal visible={!!confirmVax} message="This vaccination record will be permanently removed from the schedule." onConfirm={() => confirmVax && setVaccinations((p) => p.filter((v) => v.id !== confirmVax))} onClose={() => setConfirmVax(null)} />
-      <ConfirmDeleteModal visible={!!confirmApt} message="This appointment will be permanently deleted." onConfirm={() => confirmApt && setAppointments((p) => p.filter((a) => a.id !== confirmApt))} onClose={() => setConfirmApt(null)} />
-      <ConfirmDeleteModal visible={!!confirmNote} message="This medical note will be permanently deleted." onConfirm={() => confirmNote && setMedNotes((p) => p.filter((n) => n.id !== confirmNote))} onClose={() => setConfirmNote(null)} />
+      <ConfirmDeleteModal visible={!!confirmVax} message="This vaccination record will be permanently removed from the schedule." onConfirm={() => confirmVax && deleteVaccination(confirmVax)} onClose={() => setConfirmVax(null)} loading={mutating} />
+      <ConfirmDeleteModal visible={!!confirmApt} message="This appointment will be permanently deleted." onConfirm={() => confirmApt && deleteAppointment(confirmApt)} onClose={() => setConfirmApt(null)} loading={mutating} />
+      <ConfirmDeleteModal visible={!!confirmNote} message="This medical note will be permanently deleted." onConfirm={() => confirmNote && deleteMedNote(confirmNote)} onClose={() => setConfirmNote(null)} loading={mutating} />
 
-      <Modal title="Add Vaccination" visible={showVax} onClose={() => setShowVax(false)}>
+      <Modal title="Add Vaccination" visible={showVax} onClose={() => setShowVax(false)} disableClose={mutating}>
         <FL>Vaccine Name</FL>
         <TI value={vaxName} onChangeText={setVaxName} placeholder="e.g. MMR, DTaP, Flu Shot…" />
         <DatePickerField label="Scheduled Date" value={vaxDate} onChange={setVaxDate} />
-        <PBtn onPress={saveVax}>Add Vaccination</PBtn>
+        <PBtn onPress={saveVax} loading={mutating} disabled={mutating}>Add Vaccination</PBtn>
       </Modal>
 
-      <Modal title="Add Appointment" visible={showApt} onClose={() => setShowApt(false)}>
+      <Modal title="Add Appointment" visible={showApt} onClose={() => setShowApt(false)} disableClose={mutating}>
         <FL>Appointment Type</FL>
         <TI value={aptType} onChangeText={setAptType} placeholder="e.g. 4-Month Checkup, Eye Exam…" />
         <FL>Doctor's Name</FL>
@@ -219,26 +298,26 @@ export function HealthScreen() {
         <TI value={aptSpec} onChangeText={setAptSpec} placeholder="e.g. Pediatrician" />
         <DatePickerField label="Date" value={aptDate} onChange={setAptDate} />
         <TimePickerField label="Time" value={aptTime} onChange={setAptTime} />
-        <PBtn onPress={saveApt}>Add Appointment</PBtn>
+        <PBtn onPress={saveApt} loading={mutating} disabled={mutating}>Add Appointment</PBtn>
       </Modal>
 
-      <Modal title="Add Medical Note" visible={showNote} onClose={() => setShowNote(false)}>
+      <Modal title="Add Medical Note" visible={showNote} onClose={() => setShowNote(false)} disableClose={mutating}>
         <FL>Title</FL>
         <TI value={noteTitle} onChangeText={setNoteTitle} placeholder="e.g. 2-Month Checkup, Prescription…" />
         <DatePickerField label="Date" value={noteDate} onChange={setNoteDate} maximumDate={new Date()} />
         <FL>Notes</FL>
         <TI value={noteContent} onChangeText={setNoteContent} placeholder="Doctor's observations, medications, concerns…" multiline />
-        <PBtn onPress={saveNote}>Save Note</PBtn>
+        <PBtn onPress={saveNote} loading={mutating} disabled={mutating}>Save Note</PBtn>
       </Modal>
     </ScrollView>
   );
 }
 
-function SectionHeader({ title, onAdd }: { title: string; onAdd: () => void }) {
+function SectionHeader({ title, onAdd, disabled }: { title: string; onAdd: () => void; disabled?: boolean }) {
   return (
     <View style={styles.sectionHeader}>
       <Text style={styles.sectionLabel}>{title}</Text>
-      <TouchableOpacity onPress={onAdd} style={styles.addBtn}>
+      <TouchableOpacity onPress={onAdd} disabled={disabled} style={[styles.addBtn, disabled && styles.disabledBtn]}>
         <Plus size={12} color={colors.primary} />
         <Text style={styles.addText}>Add</Text>
       </TouchableOpacity>
@@ -269,7 +348,9 @@ const styles = StyleSheet.create({
   markDoneText: { fontSize: 12, fontWeight: '700', color: '#fff' },
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   sectionLabel: { fontSize: 10, fontWeight: '700', color: colors.mutedForeground, textTransform: 'uppercase', letterSpacing: 1 },
+  scheduleHint: { fontSize: 12, color: colors.mutedForeground, marginBottom: 12, marginTop: -4 },
   addBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  disabledBtn: { opacity: 0.5 },
   addText: { fontSize: 12, fontWeight: '700', color: colors.primary },
   list: { backgroundColor: colors.card, borderRadius: 16, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
   listBorder: { borderTopWidth: 1, borderTopColor: colors.border },
@@ -281,10 +362,10 @@ const styles = StyleSheet.create({
   vaxName: { fontSize: 14, fontWeight: '600', color: colors.foreground },
   vaxSub: { fontSize: 12, color: colors.mutedForeground, marginTop: 2 },
   badge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 20 },
-  badgeDone: { backgroundColor: colors.green100 },
+  badgeUndo: { backgroundColor: colors.muted },
   badgePending: { backgroundColor: colors.rose100 },
   badgeText: { fontSize: 10, fontWeight: '700' },
-  badgeTextDone: { color: colors.green700 },
+  badgeTextUndo: { color: colors.mutedForeground },
   badgeTextPending: { color: colors.rose600 },
   aptList: { gap: 8 },
   aptItem: {
@@ -297,24 +378,32 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
   },
-  aptIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: colors.blue100, alignItems: 'center', justifyContent: 'center' },
+  aptCheck: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  aptCheckDone: { backgroundColor: colors.green100 },
+  aptCheckPending: { backgroundColor: colors.blue100 },
   aptBody: { flex: 1 },
   aptType: { fontSize: 14, fontWeight: '700', color: colors.foreground },
+  aptTypeDone: { color: colors.green700 },
   aptSub: { fontSize: 12, color: colors.mutedForeground },
   aptDate: { fontSize: 12, fontWeight: '600', color: colors.primary, marginTop: 4 },
   noteList: { gap: 8 },
   noteItem: {
     flexDirection: 'row',
-    gap: 8,
+    alignItems: 'flex-start',
+    gap: 12,
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 16,
     padding: 16,
   },
+  noteCheck: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginTop: 2 },
+  noteCheckDone: { backgroundColor: colors.green100 },
+  noteCheckPending: { backgroundColor: colors.muted },
   noteBody: { flex: 1 },
   noteHeader: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
   noteTitle: { fontSize: 14, fontWeight: '700', color: colors.foreground },
+  noteTitleDone: { color: colors.green700 },
   noteDate: { fontSize: 12, color: colors.mutedForeground },
   noteContent: { fontSize: 14, color: colors.mutedForeground, lineHeight: 20 },
 });

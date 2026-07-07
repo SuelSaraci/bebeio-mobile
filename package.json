@@ -3,25 +3,38 @@
   "version": "1.0.0",
   "main": "index.ts",
   "dependencies": {
+    "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/datetimepicker": "9.1.0",
     "@react-navigation/bottom-tabs": "^7.18.3",
     "@react-navigation/native": "^7.3.4",
     "date-fns": "^4.4.0",
     "expo": "~56.0.12",
+    "expo-auth-session": "~56.0.14",
+    "expo-constants": "~56.0.18",
+    "expo-crypto": "~56.0.4",
     "expo-dev-client": "~56.0.20",
+    "expo-device": "~56.0.4",
     "expo-linear-gradient": "~56.0.4",
+    "expo-linking": "~56.0.15",
+    "expo-notifications": "~56.0.18",
+    "expo-print": "~56.0.4",
+    "expo-sharing": "~56.0.18",
     "expo-splash-screen": "~56.0.10",
     "expo-status-bar": "~56.0.4",
+    "expo-web-browser": "~56.0.5",
+    "firebase": "^12.15.0",
     "lucide-react-native": "^1.21.0",
     "react": "19.2.3",
     "react-native": "0.85.3",
     "react-native-gifted-charts": "^1.4.77",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "4.25.2",
-    "react-native-svg": "15.15.4"
+    "react-native-svg": "15.15.4",
+    "react-native-webview": "13.16.1"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
+    "eas-cli": "^20.5.1",
     "typescript": "~6.0.3"
   },
   "scripts": {
@@ -30,7 +43,10 @@
     "ios": "LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 expo run:ios",
     "android": "LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 expo run:android",
     "web": "expo start --web",
-    "pods": "cd ios && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 pod install"
+    "pods": "cd ios && LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 pod install",
+    "eas": "eas",
+    "build:ios": "eas build --platform ios --profile production",
+    "submit:ios": "eas submit --platform ios --profile production"
   },
   "private": true
 }

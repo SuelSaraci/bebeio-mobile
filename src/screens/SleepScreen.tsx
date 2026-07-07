@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Dimensions } from 'react-native';
 import { format } from 'date-fns';
 import { Moon, Plus, Brain, Trash2 } from 'lucide-react-native';
+import { SleepTypeIcon } from '../components/ActivityIcons';
 import { BarChart } from 'react-native-gifted-charts';
 import { useApp } from '../context/AppContext';
+import { useFeatureGate } from '../hooks/useFeatureGate';
 import {
   Modal,
   FL,
@@ -15,11 +17,12 @@ import {
   TimePickerField,
 } from '../components/ui';
 import { colors } from '../theme/colors';
-import { calcDuration, genId, minsToHM, safeFormatTime, todayStr } from '../utils';
+import { calcDuration, minsToHM, safeFormatTime, isLocalToday, resolveSleepEnd } from '../utils';
 import type { SleepType } from '../types';
 
 export function SleepScreen() {
-  const { sleepEntries, setSleepEntries } = useApp();
+  const { sleepEntries, addSleep, deleteSleep, mutating } = useApp();
+  const { gateAdd, handleAddSaveResult } = useFeatureGate();
   const [show, setShow] = useState(false);
   const [sleepType, setSleepType] = useState<SleepType>('nap');
   const [startTime, setStartTime] = useState(new Date(Date.now() - 3600000));
@@ -29,7 +32,7 @@ export function SleepScreen() {
   const [confirmId, setConfirmId] = useState<string | null>(null);
 
   const todaySleep = sleepEntries
-    .filter((s) => s.start.startsWith(todayStr()) || s.end.startsWith(todayStr()))
+    .filter((s) => isLocalToday(s.start) || isLocalToday(s.end))
     .sort((a, b) => b.start.localeCompare(a.start));
 
   const nightMins = todaySleep
@@ -49,18 +52,20 @@ export function SleepScreen() {
     return { value: parseFloat((mins / 60).toFixed(1)), label: format(d, 'EEE') };
   });
 
-  const save = () => {
+  const save = async () => {
+    if (mutating) return;
     setError('');
-    if (endTime <= startTime) {
-      setError('End time must be after start time.');
-      return;
-    }
-    setSleepEntries((p) => [
-      { id: genId(), start: startTime.toISOString(), end: endTime.toISOString(), type: sleepType, notes: notes || undefined },
-      ...p,
-    ]);
-    setNotes('');
-    setShow(false);
+    const resolvedEnd = resolveSleepEnd(startTime, endTime);
+    const ok = await addSleep({
+      start: startTime.toISOString(),
+      end: resolvedEnd.toISOString(),
+      type: sleepType,
+      notes: notes || undefined,
+    });
+    handleAddSaveResult(ok, 'sleep', () => setShow(false), () => {
+      setNotes('');
+      setShow(false);
+    });
   };
 
   const chartWidth = Dimensions.get('window').width - 64;
@@ -73,16 +78,17 @@ export function SleepScreen() {
           <Text style={styles.sub}>{format(new Date(), 'EEEE, MMMM d')}</Text>
         </View>
         <TouchableOpacity
-          style={styles.logBtn}
-          onPress={() => {
+          style={styles.addBtn}
+          disabled={mutating}
+          onPress={() => gateAdd(sleepEntries.length, 'sleep', () => {
             setError('');
             setStartTime(new Date(Date.now() - 3600000));
             setEndTime(new Date());
             setShow(true);
-          }}
+          })}
         >
           <Plus size={15} color={colors.primaryForeground} />
-          <Text style={styles.logBtnText}>Log</Text>
+          <Text style={styles.addBtnText}>Add</Text>
         </TouchableOpacity>
       </View>
 
@@ -118,7 +124,7 @@ export function SleepScreen() {
 
       <Text style={styles.sectionLabel}>Today's Sessions</Text>
       {todaySleep.length === 0 ? (
-        <EmptyState icon={<Moon size={22} color={colors.mutedForeground} />} title="No sleep logged" desc="Tap 'Log' to record a sleep session." />
+        <EmptyState icon={<Moon size={22} color={colors.mutedForeground} />} title="No sleep yet" desc="Tap 'Add' to record a sleep session." />
       ) : (
         <View style={styles.sessionList}>
           {todaySleep.map((s) => (
@@ -133,7 +139,7 @@ export function SleepScreen() {
                 </Text>
               </View>
               <Text style={styles.sessionDur}>{calcDuration(s.start, s.end)}</Text>
-              <TouchableOpacity onPress={() => setConfirmId(s.id)}>
+              <TouchableOpacity onPress={() => setConfirmId(s.id)} disabled={mutating}>
                 <Trash2 size={14} color={colors.mutedForeground} />
               </TouchableOpacity>
             </View>
@@ -152,16 +158,25 @@ export function SleepScreen() {
       <ConfirmDeleteModal
         visible={!!confirmId}
         message="This sleep session will be permanently removed."
-        onConfirm={() => confirmId && setSleepEntries((p) => p.filter((s) => s.id !== confirmId))}
+        onConfirm={() => confirmId && deleteSleep(confirmId)}
         onClose={() => setConfirmId(null)}
+        loading={mutating}
       />
 
-      <Modal title="Log Sleep Session" visible={show} onClose={() => setShow(false)}>
+      <Modal title="Add Sleep Session" visible={show} onClose={() => setShow(false)} disableClose={mutating}>
         <FL>Type</FL>
         <ToggleGroup
           options={[
-            { value: 'night' as SleepType, label: '🌙 Night' },
-            { value: 'nap' as SleepType, label: '😴 Nap' },
+            {
+              value: 'night' as SleepType,
+              label: 'Night',
+              icon: <SleepTypeIcon type="night" size={16} color={sleepType === 'night' ? colors.primary : colors.mutedForeground} />,
+            },
+            {
+              value: 'nap' as SleepType,
+              label: 'Nap',
+              icon: <SleepTypeIcon type="nap" size={16} color={sleepType === 'nap' ? colors.primary : colors.mutedForeground} />,
+            },
           ]}
           value={sleepType}
           onChange={setSleepType}
@@ -171,7 +186,7 @@ export function SleepScreen() {
         <FL>Notes (optional)</FL>
         <TI value={notes} onChangeText={setNotes} placeholder="e.g. restless, woke once…" />
         {error ? <Text style={styles.error}>{error}</Text> : null}
-        <PBtn onPress={save}>Save Session</PBtn>
+        <PBtn onPress={save} loading={mutating} disabled={mutating}>Save Session</PBtn>
       </Modal>
     </ScrollView>
   );
@@ -183,7 +198,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   title: { fontSize: 24, fontWeight: '700', color: colors.foreground },
   sub: { fontSize: 14, color: colors.mutedForeground, marginTop: 2 },
-  logBtn: {
+  addBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
@@ -192,7 +207,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 12,
   },
-  logBtnText: { color: colors.primaryForeground, fontSize: 14, fontWeight: '700' },
+  addBtnText: { color: colors.primaryForeground, fontSize: 14, fontWeight: '700' },
   statsRow: { flexDirection: 'row', gap: 12 },
   stat: {
     flex: 1,

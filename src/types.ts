@@ -5,6 +5,7 @@ export type SleepType = 'night' | 'nap';
 export type DiaperType = 'wet' | 'dirty' | 'both';
 
 export interface BabyProfile {
+  id?: string;
   name: string;
   birthDate: string;
   gender: 'girl' | 'boy';
@@ -58,6 +59,8 @@ export interface Appointment {
   date: string;
   time: string;
   type: string;
+  done: boolean;
+  completedDate?: string;
 }
 
 export interface Milestone {
@@ -73,4 +76,6 @@ export interface MedicalNote {
   date: string;
   title: string;
   content: string;
+  done: boolean;
+  completedDate?: string;
 }

@@ -1,0 +1,39 @@
+{
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "ios": {
+        "simulator": true
+      }
+    },
+    "preview": {
+      "distribution": "internal"
+    },
+    "production": {
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://bebeio-server-production.up.railway.app",
+        "EXPO_PUBLIC_WEB_URL": "https://bebeio-web-production.up.railway.app",
+        "EXPO_PUBLIC_FIREBASE_API_KEY": "AIzaSyBj5ZF_PBgLktZ65cMV0Nepor97n3SeRbA",
+        "EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN": "bebeio.firebaseapp.com",
+        "EXPO_PUBLIC_FIREBASE_PROJECT_ID": "bebeio",
+        "EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET": "bebeio.firebasestorage.app",
+        "EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID": "434834819728",
+        "EXPO_PUBLIC_FIREBASE_APP_ID": "1:434834819728:web:043c0ad0d102b79b40a615",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "434834819728-iscpdmt9q4hiuv0frl39kosvb6arv28o.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "434834819728-qfarijcfe1k0cvvauqjh7t85haff6h9q.apps.googleusercontent.com",
+        "EXPO_PUBLIC_EAS_PROJECT_ID": "a54d29e2-d0db-4da0-907a-83dcdea7fb32",
+        "EXPO_PUBLIC_TERMS_URL": "https://bebeio-web-production.up.railway.app/terms",
+        "EXPO_PUBLIC_PRIVACY_URL": "https://bebeio-web-production.up.railway.app/privacy"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

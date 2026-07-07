@@ -5,33 +5,54 @@ import {
   StyleSheet,
   TouchableOpacity,
   KeyboardAvoidingView,
-  Platform,
   ScrollView,
+  ActivityIndicator,
 } from 'react-native';
 import { Baby, Eye, EyeOff } from 'lucide-react-native';
 import { useApp } from '../context/AppContext';
+import { useToast } from '../components/Toast';
 import { FL, TI, PBtn } from '../components/ui';
+import { keyboardAvoidingBehavior } from '../lib/platform';
+import { AuthDivider, GoogleSignInButton } from '../components/GoogleSignInButton';
 import { colors } from '../theme/colors';
+import {
+  validateLogin,
+  hasErrors,
+  firstError,
+  clearFieldError,
+  type FieldErrors,
+} from '../lib/validation';
 
 export function LoginScreen() {
-  const { setScreen } = useApp();
-  const [email, setEmail] = useState('sarah@example.com');
-  const [password, setPassword] = useState('••••••••');
+  const { login, setScreen, loading } = useApp();
+  const { showError, showSuccess } = useToast();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
-  const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
 
-  const submit = () => {
-    if (!email.trim() || !password.trim()) {
-      setError('Please fill in all fields.');
+  const submit = async () => {
+    const errors = validateLogin({ email, password });
+    if (hasErrors(errors)) {
+      setFieldErrors(errors);
+      showError(firstError(errors));
       return;
     }
-    setScreen('setup');
+    setFieldErrors({});
+    try {
+      await login(email, password);
+      showSuccess('Welcome back!');
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Sign in failed.';
+      showError(message);
+      setFieldErrors({ password: message });
+    }
   };
 
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={keyboardAvoidingBehavior}
     >
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         <View style={styles.logoWrap}>
@@ -44,22 +65,45 @@ export function LoginScreen() {
 
         <View style={styles.form}>
           <FL>Email</FL>
-          <TI value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" />
+          <TI
+            value={email}
+            onChangeText={(text) => {
+              setEmail(text);
+              setFieldErrors((prev) => clearFieldError(prev, 'email'));
+            }}
+            placeholder="you@example.com"
+            keyboardType="email-address"
+            error={fieldErrors.email}
+          />
           <FL>Password</FL>
           <View>
             <TI
               value={password}
-              onChangeText={setPassword}
+              onChangeText={(text) => {
+                setPassword(text);
+                setFieldErrors((prev) => clearFieldError(prev, 'password'));
+              }}
               placeholder="••••••••"
               secureTextEntry={!showPw}
+              error={fieldErrors.password}
             />
             <TouchableOpacity style={styles.eyeBtn} onPress={() => setShowPw(!showPw)}>
               {showPw ? <EyeOff size={15} color={colors.mutedForeground} /> : <Eye size={15} color={colors.mutedForeground} />}
             </TouchableOpacity>
           </View>
-          {error ? <Text style={styles.error}>{error}</Text> : null}
-          <PBtn onPress={submit}>Sign In</PBtn>
+          <PBtn onPress={submit} disabled={loading}>
+            {loading ? <ActivityIndicator color={colors.primaryForeground} /> : 'Sign In'}
+          </PBtn>
         </View>
+
+        <AuthDivider />
+        <GoogleSignInButton
+          disabled={loading}
+          onSuccess={() => showSuccess('Welcome back!')}
+          onError={(msg) => {
+            if (!msg.toLowerCase().includes('cancel')) showError(msg);
+          }}
+        />
 
         <Text style={styles.footer}>
           New to Bebio?{' '}
@@ -67,10 +111,6 @@ export function LoginScreen() {
             Create account
           </Text>
         </Text>
-
-        <View style={styles.demo}>
-          <Text style={styles.demoText}>Demo mode — any credentials work</Text>
-        </View>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -93,17 +133,6 @@ const styles = StyleSheet.create({
   sub: { fontSize: 14, color: colors.mutedForeground, marginTop: 4 },
   form: { gap: 0 },
   eyeBtn: { position: 'absolute', right: 12, top: 12 },
-  error: { fontSize: 12, color: colors.red500, fontWeight: '500', marginBottom: 8 },
   footer: { textAlign: 'center', fontSize: 14, color: colors.mutedForeground, marginTop: 24 },
   link: { color: colors.primary, fontWeight: '700' },
-  demo: {
-    marginTop: 32,
-    backgroundColor: colors.secondary,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 16,
-    padding: 16,
-    alignItems: 'center',
-  },
-  demoText: { fontSize: 12, color: colors.mutedForeground },
 });

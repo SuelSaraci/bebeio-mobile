@@ -1,12 +1,17 @@
 {
   "expo": {
-    "name": "bebeio-mobile",
+    "name": "Bebio",
     "slug": "bebeio-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "scheme": "bebeio",
+    "extra": {
+      "eas": {
+        "projectId": "a54d29e2-d0db-4da0-907a-83dcdea7fb32"
+      }
+    },
     "ios": {
       "bundleIdentifier": "com.bebeio.mobile",
       "supportsTablet": true
@@ -14,7 +19,7 @@
     "android": {
       "package": "com.bebeio.mobile",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#CA6576",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -31,11 +36,12 @@
         "expo-splash-screen",
         {
           "image": "./assets/splash-icon.png",
-          "backgroundColor": "#E6F4FE",
+          "backgroundColor": "#CA6576",
           "imageWidth": 200,
           "resizeMode": "contain"
         }
-      ]
+      ],
+      "expo-web-browser"
     ]
   }
 }
